@@ -557,11 +557,8 @@ func decodeGBKArray(tmp []byte) string {
 	// 考虑 转义字符(\\()   (\\))
 	var isTransferDelim = false
 
-	var xx string
-
 	for _, b := range tmp {
 		//考虑 转义字符(\\()   (\\))
-		xx = string(b)
 		if isDelimStart(b) && !isTransferDelim {
 			//非开始,即为转义字符
 			start = true
@@ -595,7 +592,6 @@ func decodeGBKArray(tmp []byte) string {
 		}
 
 	}
-	println(xx)
 	return finalTxt
 }
 

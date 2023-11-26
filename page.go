@@ -6,8 +6,11 @@ package pdf
 
 import (
 	"fmt"
+	"github.com/timandy/routine"
 	"strings"
 )
+
+var Encode_ENV = routine.NewThreadLocal()
 
 // A Page represent a single page in a PDF file.
 // The methods interpret a Page dictionary stored in V.
@@ -135,6 +138,8 @@ func (f Font) Width(code int) float64 {
 // Encoder returns the encoding between font code point sequences and UTF-8.
 func (f Font) Encoder() TextEncoding {
 	enc := f.V.Key("Encoding")
+	Encode_ENV.Set(enc.Name())
+
 	switch enc.Kind() {
 	case Name:
 		switch enc.Name() {
@@ -145,6 +150,8 @@ func (f Font) Encoder() TextEncoding {
 		case "Identity-H":
 			// TODO: Should be big-endian UCS-2 decoder
 			return &nopEncoder{}
+		case "GBK-EUC-H":
+			return &gbkEncoder{}
 		default:
 			println("unknown encoding", enc.Name())
 			return &nopEncoder{}
@@ -226,6 +233,13 @@ func (e *byteEncoder) Decode(raw string) (text string) {
 		r = append(r, e.table[raw[i]])
 	}
 	return string(r)
+}
+
+type gbkEncoder struct {
+}
+
+func (g *gbkEncoder) Decode(raw string) (text string) {
+	return string(raw)
 }
 
 type cmap struct {

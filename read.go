@@ -4,7 +4,7 @@
 
 // Package pdf implements reading of PDF files.
 //
-// Overview
+// # Overview
 //
 // PDF is Adobe's Portable Document Format, ubiquitous on the internet.
 // A PDF document is a complex data format built on a fairly simple structure.
@@ -43,7 +43,6 @@
 // they are implemented only in terms of the Value API and could be moved outside
 // the package. Equally important, traversal of other PDF data structures can be implemented
 // in other packages as needed.
-//
 package pdf // import "rsc.io/pdf"
 
 // BUG(rsc): The package is incomplete, although it has been used successfully on some
@@ -68,6 +67,7 @@ import (
 	"crypto/md5"
 	"crypto/rc4"
 	"fmt"
+	"github.com/timandy/routine"
 	"io"
 	"io/ioutil"
 	"os"
@@ -97,6 +97,8 @@ func (r *Reader) errorf(format string, args ...interface{}) {
 	panic(fmt.Errorf(format, args...))
 }
 
+var FILE_OP = routine.NewThreadLocal()
+
 // Open opens a file for reading.
 func Open(file string) (*Reader, error) {
 	// TODO: Deal with closing file.
@@ -106,10 +108,27 @@ func Open(file string) (*Reader, error) {
 	}
 	fi, err := f.Stat()
 	if err != nil {
-		f.Close()
+		_ = f.Close()
 		return nil, err
 	}
+
+	FILE_OP.Set(f)
 	return NewReader(f, fi.Size())
+}
+
+// Open opens a file for reading.
+func Close() error {
+	fileOP := FILE_OP.Get()
+	if fileOP != nil {
+		err := fileOP.(*os.File).Close()
+		if err != nil {
+			return err
+		}
+		FILE_OP.Remove()
+	}
+
+	Encode_ENV.Remove()
+	return nil
 }
 
 // NewReader opens a file for reading, using the data in f with the given total size.
@@ -600,7 +619,7 @@ func (v Value) RawString() string {
 	return x
 }
 
-// Text returns v's string value interpreted as a ``text string'' (defined in the PDF spec)
+// Text returns v's string value interpreted as a “text string” (defined in the PDF spec)
 // and converted to UTF-8.
 // If v.Kind() != String, Text returns the empty string.
 func (v Value) Text() string {
@@ -789,7 +808,7 @@ func (e *errorReadCloser) Close() error {
 
 // Reader returns the data contained in the stream v.
 // If v.Kind() != Stream, Reader returns a ReadCloser that
-// responds to all reads with a ``stream not present'' error.
+// responds to all reads with a “stream not present” error.
 func (v Value) Reader() io.ReadCloser {
 	x, ok := v.data.(stream)
 	if !ok {

@@ -7,9 +7,12 @@
 package pdf
 
 import (
+	"encoding/hex"
 	"fmt"
+	"github.com/axgle/mahonia"
 	"io"
 	"strconv"
+	"strings"
 )
 
 // A token is a PDF token in the input stream, one of the following Go types:
@@ -20,7 +23,6 @@ import (
 //	string, a PDF string literal
 //	keyword, a PDF keyword
 //	name, a PDF name without the leading slash
-//
 type token interface{}
 
 // A name is a PDF name, without the leading slash.
@@ -461,16 +463,147 @@ func (b *buffer) readObject() object {
 }
 
 func (b *buffer) readArray() object {
-	var x array
-	for {
-		tok := b.readToken()
-		if tok == nil || tok == keyword("]") {
-			break
+	if Encode_ENV.Get() != nil && strings.Contains(Encode_ENV.Get().(string), "GBK") {
+		var tmp []byte
+		for {
+			tok := b.readByte()
+			if tok == byte(']') {
+				break
+			}
+			tmp = append(tmp, tok)
 		}
-		b.unreadToken(tok)
-		x = append(x, b.readObject())
+
+		gbkArray := decodeGBKArray(tmp)
+		return array{gbkArray + "\n"}
+
+		//	var textGBK string
+		//	var tmpTxt string
+		//
+		//AO:
+		//	for {
+		//
+		//		tok := b.readByte()
+		//
+		//		if tok == byte('<') {
+		//			b.unreadToken(tok)
+		//			continue
+		//		}
+		//
+		//		//is ] will stop
+		//		if tok == byte(']') {
+		//			break
+		//		}
+		//
+		//		if tok == byte('(') {
+		//			//读取到下下个),直到不存在下一个
+		//			var isEfficient = true
+		//		BO:
+		//			for {
+		//				tok1 := b.readByte()
+		//				//下一个
+		//				if tok1 == byte('(') || tok1 == byte(']') || tok1 == byte('<') {
+		//					b.unreadToken(tok)
+		//					b.decBytePos()
+		//					continue AO
+		//				}
+		//
+		//				if tok1 == byte(')') {
+		//					b.unreadToken(tok)
+		//					isEfficient = false
+		//					continue BO
+		//				}
+		//
+		//				if isEfficient {
+		//					tmpTxt += string(tok1)
+		//				}
+		//
+		//			}
+		//		}
+		//
+		//		if tok == byte('>') {
+		//			//从新开始
+		//			tmpTxt = tmpTxt + decodeGBK(textGBK)
+		//			textGBK = ""
+		//
+		//			b.unreadToken(tok)
+		//			continue
+		//		}
+		//
+		//		textGBK += string(tok)
+		//	}
+		//
+		//	return array{tmpTxt}
+	} else {
+		// is utf8
+		var x array
+		for {
+			tok := b.readToken()
+			if tok == nil || tok == keyword("]") {
+				break
+			}
+			b.unreadToken(tok)
+			x = append(x, b.readObject())
+		}
+		return x
 	}
-	return x
+
+}
+
+func decodeGBKArray(tmp []byte) string {
+	var start = false
+	var tmpTxt string
+	var finalTxt string
+
+	// 考虑 转义字符(\\()   (\\))
+	var isTransferDelim = false
+
+	var xx string
+
+	for _, b := range tmp {
+		//考虑 转义字符(\\()   (\\))
+		xx = string(b)
+		if isDelimStart(b) && !isTransferDelim {
+			//非开始,即为转义字符
+			start = true
+			continue
+		}
+
+		if isDelimEnd(b) && !isTransferDelim {
+			start = false
+
+			if b == byte(')') {
+				finalTxt = finalTxt + tmpTxt
+			} else if b == byte('>') {
+				finalTxt = finalTxt + decodeGBK(tmpTxt)
+			}
+
+			tmpTxt = ""
+			continue
+		}
+
+		if start {
+			if isTransferDelim {
+				tmpTxt = string(b)
+				isTransferDelim = false
+			} else {
+				tmpTxt += string(b)
+			}
+
+			if tmpTxt == "\\" {
+				isTransferDelim = true
+			}
+		}
+
+	}
+	println(xx)
+	return finalTxt
+}
+
+func decodeGBK(gbk string) string {
+	// is gbk
+	enc := mahonia.NewDecoder("gbk")
+	data1, _ := hex.DecodeString(gbk)
+	return enc.ConvertString(string(data1))
 }
 
 func (b *buffer) readDict() object {
@@ -512,6 +645,10 @@ func (b *buffer) readDict() object {
 	return stream{x, b.objptr, b.readOffset()}
 }
 
+func (b *buffer) decBytePos() {
+	b.pos--
+}
+
 func isSpace(b byte) bool {
 	switch b {
 	case '\x00', '\t', '\n', '\f', '\r', ' ':
@@ -523,6 +660,22 @@ func isSpace(b byte) bool {
 func isDelim(b byte) bool {
 	switch b {
 	case '<', '>', '(', ')', '[', ']', '{', '}', '/', '%':
+		return true
+	}
+	return false
+}
+
+func isDelimStart(b byte) bool {
+	switch b {
+	case '<', '(', '{':
+		return true
+	}
+	return false
+}
+
+func isDelimEnd(b byte) bool {
+	switch b {
+	case '>', ')', '}':
 		return true
 	}
 	return false
